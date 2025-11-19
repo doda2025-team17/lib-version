@@ -78,9 +78,12 @@ jobs:
             -DgenerateBackupPoms=false
 
       - name: Build & deploy release to GitHub Packages
-        run: mvn -B clean deploy -DskipTests
+        run: >
+          mvn -B clean deploy -DskipTests
+          -DaltDeploymentRepository=github::default::https://maven.pkg.github.com/doda2025-team17/lib-version
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
+
 
       - name: Commit released version
         run: |

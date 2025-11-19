@@ -13,6 +13,9 @@ jobs:
       contents: read
       packages: write
 
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
@@ -23,30 +26,35 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Set up Java and Maven for GitHub Packages
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "17"
-          server-id: github
-          server-username: GITHUB_ACTOR
-          server-password: GITHUB_TOKEN
-
+      - name: Configure Maven for GitHub Packages
+        run: |
+          mkdir -p ~/.m2
+          cat > ~/.m2/settings.xml << 'EOF'
+          <settings>
+            <servers>
+              <server>
+                <id>github</id>
+                <username>${env.GITHUB_ACTOR}</username>
+                <password>${env.GH_TOKEN}</password>
+              </server>
+            </servers>
+          </settings>
+          EOF
 
       - name: Read base version from pom.xml
         id: basever
         run: |
           base=$(mvn -q -DforceStdout help:evaluate -Dexpression=project.version)
-          base=${base%-SNAPSHOT}   # drop -SNAPSHOT if present
+          base=${base%-SNAPSHOT}
           echo "base=$base" >> "$GITHUB_OUTPUT"
 
       - name: Build pre-release version string
         id: prerelease
         run: |
-          base="${{ steps.basever.outputs.base }}"   # e.g. 1.0.1
-          branch="${GITHUB_REF_NAME}"                # e.g. feature/lib-x
-          branch=${branch//\//-}                     # replaces / with -
-          ts=$(date +'%Y%m%d-%H%M%S')                # strictly increasing timestamp
+          base="${{ steps.basever.outputs.base }}"
+          branch="${GITHUB_REF_NAME}"
+          branch=${branch//\//-}
+          ts=$(date +'%Y%m%d-%H%M%S')
           version="${base}-${branch}-${ts}"
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
@@ -60,9 +68,6 @@ jobs:
         run: >
           mvn -B clean deploy -DskipTests
           -DaltDeploymentRepository=github::default::https://maven.pkg.github.com/doda2025-team17/lib-version
-        env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
-
 
       - name: Restore SNAPSHOT pom.xml
         run: |

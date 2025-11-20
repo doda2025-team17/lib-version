@@ -1,0 +1,106 @@
+name: Release lib-version
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+
+    # Use GITHUB_TOKEN for publishing to GitHub Packages
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    permissions:
+      contents: write
+      packages: write
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Configure Maven for GitHub Packages
+        run: |
+          mkdir -p ~/.m2
+          cat > ~/.m2/settings.xml << 'EOF'
+          <settings>
+            <servers>
+              <server>
+                <id>github</id>
+                <username>${env.GITHUB_ACTOR}</username>
+                <password>${env.GH_TOKEN}</password>
+              </server>
+            </servers>
+          </settings>
+          EOF
+
+      - name: Read current POM version
+        id: pomver
+        run: |
+          ver=$(mvn -q -DforceStdout help:evaluate -Dexpression=project.version)
+          echo "pom_version=$ver" >> "$GITHUB_OUTPUT"
+
+      - name: Derive release version (drop -SNAPSHOT)
+        id: releasever
+        run: |
+          pom_ver="${{ steps.pomver.outputs.pom_version }}"
+          # Strip -SNAPSHOT if present
+          release_ver="${pom_ver%-SNAPSHOT}"
+          echo "release_version=$release_ver" >> "$GITHUB_OUTPUT"
+          echo "Using release version: $release_ver"
+
+      - name: Set release version in pom.xml
+        run: |
+          mvn -B versions:set \
+            -DnewVersion=${{ steps.releasever.outputs.release_version }} \
+            -DgenerateBackupPoms=false
+
+      - name: Build & deploy release to GitHub Packages
+        run: >
+          mvn -B clean deploy -DskipTests
+          -DaltDeploymentRepository=github::https://maven.pkg.github.com/doda2025-team17/lib-version
+
+      - name: Commit released version
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git commit -am "Release ${{ steps.releasever.outputs.release_version }}" || echo "No changes to commit"
+
+      - name: Create tag from POM version
+        run: |
+          ver="${{ steps.releasever.outputs.release_version }}"
+          git tag "v${ver}"
+
+      - name: Calculate next SNAPSHOT version
+        id: nextver
+        run: |
+          ver="${{ steps.releasever.outputs.release_version }}"   # e.g. 1.0.0
+          IFS='.' read -r major minor patch <<< "$ver"
+          patch=$((patch+1))
+          next="${major}.${minor}.${patch}-SNAPSHOT"
+          echo "next=$next" >> "$GITHUB_OUTPUT"
+          echo "Next snapshot version: $next"
+
+      - name: Set next SNAPSHOT in pom.xml
+        run: |
+          mvn -B versions:set \
+            -DnewVersion=${{ steps.nextver.outputs.next }} \
+            -DgenerateBackupPoms=false
+
+      - name: Commit next SNAPSHOT bump
+        run: |
+          git commit -am "Bump version to ${{ steps.nextver.outputs.next }}" || echo "No changes to commit"
+
+      - name: Push commits and tag
+        run: |
+          git push origin HEAD --follow-tags

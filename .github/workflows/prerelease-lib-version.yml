@@ -67,7 +67,7 @@ jobs:
       - name: Build & deploy pre-release
         run: >
           mvn -B clean deploy -DskipTests
-          -DaltDeploymentRepository=github::default::https://maven.pkg.github.com/doda2025-team17/lib-version
+          -DaltDeploymentRepository=github::https://maven.pkg.github.com/doda2025-team17/lib-version
 
       - name: Restore SNAPSHOT pom.xml
         run: |

@@ -1,28 +1,27 @@
 name: Release lib-version
 
-# Only runs when a Git tag matching vX.Y.Z is pushed
 on:
   push:
-    tags:
-      - "v[0-9]+.[0-9]+.[0-9]+"
+    branches:
+      - main
 
 jobs:
   release:
     runs-on: ubuntu-24.04
 
+    # Use GITHUB_TOKEN for publishing to GitHub Packages
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
     permissions:
       contents: write
       packages: write
-
-    # Expose the built-in GITHUB_TOKEN as GH_TOKEN for Maven
-    env:
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # need full history & tags
+          fetch-depth: 0
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -45,37 +44,25 @@ jobs:
           </settings>
           EOF
 
-      - name: Extract release version from tag
-        id: tagver
-        run: |
-          # refs/tags/v1.2.3 -> 1.2.3
-          ref="${GITHUB_REF##*/}"
-          ver="${ref#v}"
-          echo "version=$ver" >> "$GITHUB_OUTPUT"
-
-      - name: Read current pom version
+      - name: Read current POM version
         id: pomver
         run: |
-          base=$(mvn -q -DforceStdout help:evaluate -Dexpression=project.version)
-          echo "pom_version=$base" >> "$GITHUB_OUTPUT"
+          ver=$(mvn -q -DforceStdout help:evaluate -Dexpression=project.version)
+          echo "pom_version=$ver" >> "$GITHUB_OUTPUT"
 
-      - name: Verify pom version matches tag (X.Y.Z-SNAPSHOT)
+      - name: Derive release version (drop -SNAPSHOT)
+        id: releasever
         run: |
-          tag_ver="${{ steps.tagver.outputs.version }}"
           pom_ver="${{ steps.pomver.outputs.pom_version }}"
-          expected="${tag_ver}-SNAPSHOT"
-          echo "Tag version:      $tag_ver"
-          echo "POM version:      $pom_ver"
-          echo "Expected in POM:  $expected"
-          if [ "$pom_ver" != "$expected" ]; then
-            echo "ERROR: POM version must be $expected before releasing."
-            exit 1
-          fi
+          # Strip -SNAPSHOT if present
+          release_ver="${pom_ver%-SNAPSHOT}"
+          echo "release_version=$release_ver" >> "$GITHUB_OUTPUT"
+          echo "Using release version: $release_ver"
 
-      - name: Set release version (remove -SNAPSHOT)
+      - name: Set release version in pom.xml
         run: |
           mvn -B versions:set \
-            -DnewVersion=${{ steps.tagver.outputs.version }} \
+            -DnewVersion=${{ steps.releasever.outputs.release_version }} \
             -DgenerateBackupPoms=false
 
       - name: Build & deploy release to GitHub Packages
@@ -87,22 +74,22 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git commit -am "Release ${{ steps.tagver.outputs.version }}" || echo "No changes to commit"
+          git commit -am "Release ${{ steps.releasever.outputs.release_version }}" || echo "No changes to commit"
 
-      - name: Move tag to this commit
+      - name: Create tag from POM version
         run: |
-          ver="${{ steps.tagver.outputs.version }}"
-          git tag -d "v${ver}" || true
+          ver="${{ steps.releasever.outputs.release_version }}"
           git tag "v${ver}"
 
       - name: Calculate next SNAPSHOT version
         id: nextver
         run: |
-          ver="${{ steps.tagver.outputs.version }}"   # e.g. 1.0.0
+          ver="${{ steps.releasever.outputs.release_version }}"   # e.g. 1.0.0
           IFS='.' read -r major minor patch <<< "$ver"
           patch=$((patch+1))
           next="${major}.${minor}.${patch}-SNAPSHOT"
           echo "next=$next" >> "$GITHUB_OUTPUT"
+          echo "Next snapshot version: $next"
 
       - name: Set next SNAPSHOT in pom.xml
         run: |
@@ -116,5 +103,4 @@ jobs:
 
       - name: Push commits and tag
         run: |
-          git push origin HEAD
-          git push --force origin "v${{ steps.tagver.outputs.version }}"
+          git push origin HEAD --follow-tags

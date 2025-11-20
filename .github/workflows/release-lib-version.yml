@@ -14,6 +14,10 @@ jobs:
       contents: write
       packages: write
 
+    # Expose the built-in GITHUB_TOKEN as GH_TOKEN for Maven
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
@@ -26,7 +30,6 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      # Creates a xml file to allow Maven to authenticate and upload the library to GitHub Packages
       - name: Configure Maven for GitHub Packages
         run: |
           mkdir -p ~/.m2
@@ -41,8 +44,6 @@ jobs:
             </servers>
           </settings>
           EOF
-        env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
 
       - name: Extract release version from tag
         id: tagver
@@ -80,10 +81,7 @@ jobs:
       - name: Build & deploy release to GitHub Packages
         run: >
           mvn -B clean deploy -DskipTests
-          -DaltDeploymentRepository=github::default::https://maven.pkg.github.com/doda2025-team17/lib-version
-        env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
-
+          -DaltDeploymentRepository=github::https://maven.pkg.github.com/doda2025-team17/lib-version
 
       - name: Commit released version
         run: |

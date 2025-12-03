@@ -6,7 +6,7 @@
 
   <groupId>nl.tudelft.doda</groupId>
   <artifactId>lib-version</artifactId>
-  <version>1.0.2</version>
+  <version>1.0.3-SNAPSHOT</version>
   <name>lib-version</name>
   <description>Version-aware utility library for the DODA assignment</description>
   <packaging>jar</packaging>
